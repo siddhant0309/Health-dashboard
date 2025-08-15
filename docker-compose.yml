@@ -1,0 +1,94 @@
+version: '3.8'
+
+services:
+  # Backend API
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "5000:5000"
+    environment:
+      - FLASK_ENV=development
+      - DATABASE_URL=postgresql://postgres:password@postgres:5432/health_dashboard
+      - SECRET_KEY=dev-secret-key-change-in-production
+      - HEALTH_CHECK_INTERVAL=30
+      - REQUEST_TIMEOUT=10
+    depends_on:
+      - postgres
+    volumes:
+      - ./backend:/app
+      - /app/venv
+    restart: unless-stopped
+    networks:
+      - health-dashboard
+
+  # Frontend React App
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    environment:
+      - REACT_APP_API_URL=http://localhost:5000/api
+      - CHOKIDAR_USEPOLLING=true
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    depends_on:
+      - backend
+    restart: unless-stopped
+    networks:
+      - health-dashboard
+
+  # PostgreSQL Database
+  postgres:
+    image: postgres:13-alpine
+    environment:
+      - POSTGRES_DB=health_dashboard
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=password
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./backend/init.sql:/docker-entrypoint-initdb.d/init.sql
+    restart: unless-stopped
+    networks:
+      - health-dashboard
+
+  # Redis for caching and background tasks
+  redis:
+    image: redis:6-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    restart: unless-stopped
+    networks:
+      - health-dashboard
+
+  # Nginx reverse proxy (optional)
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/ssl:/etc/nginx/ssl:ro
+    depends_on:
+      - backend
+      - frontend
+    restart: unless-stopped
+    networks:
+      - health-dashboard
+
+volumes:
+  postgres_data:
+  redis_data:
+
+networks:
+  health-dashboard:
+    driver: bridge
